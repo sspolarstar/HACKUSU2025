@@ -17,9 +17,10 @@ This Arduino sketch for an ESP32-CAM performs object detection and transmits the
 
 ### To install `nwad123-hackusu-25_inferencing.h`
 
-Download the Edge Impulse project containing your model. This will be a zip file.
+The edge impulse model is located in the ai_cam/ directory and named
+`ei-nwad123-hackusu-25-arduino-1.0.2.zip`.
 In the Arduino IDE, go to Sketch -> Include Library -> Add .ZIP Library...
-Select the downloaded zip file.
+and select the edge impulse model file.
 
 ## Hardware
 

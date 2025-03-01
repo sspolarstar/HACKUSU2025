@@ -254,8 +254,19 @@ void shutdownSystems() {
 }
 
 void controlServoMotors(int x, int y){
-  udPWM.writeMicroseconds(1500 - (y/2));
-  lrPWM.writeMicroseconds(1500 - (x/2));
+  if (y > 0){
+    udPWM.writeMicroseconds(int 1750);
+  }
+  else if (y < 0){
+    upPWM.writeMicroseconds(int 1750);
+  }
+  else{
+    udPWM.writeMicroseconds(1500)
+  }
+  lrPWM.writeMicroseconds(1500);
+  //udPWM.writeMicroseconds(1500 - (y/2));
+  //lrPWM.writeMicroseconds(1500 - (x/2));
+  
 }
 
 

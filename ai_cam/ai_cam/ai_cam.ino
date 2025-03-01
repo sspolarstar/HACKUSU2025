@@ -59,6 +59,12 @@ struct sender
 esp_now_peer_info_t peerInfo = {0};
 
 // ----- FUNCTIONS -----
+
+/**
+ * @brief Initializes and starts the camera and object detection model.
+ * 
+ * This function prints status messages at each step of initialization.
+ */
 __attribute__((always_inline)) 
 auto start_camera() -> void {
   Serial.println("----- CAMERA & OBJ DETECTION MODEL STARTUP -----");
@@ -80,6 +86,11 @@ auto start_camera() -> void {
   Serial.println("[CAM] Camera Startup OK");
 }
 
+/**
+ * @brief Locates a target object in the camera's view.
+ * 
+ * @return std::optional<point> The coordinates of the target object if found, otherwise std::nullopt.
+ */
 [[nodiscard]] __attribute__((always_inline)) 
 auto locate_target() -> std::optional<point> {
   // capture a single frame, if the frame fails return nullopt
@@ -155,12 +166,23 @@ auto locate_target() -> std::optional<point> {
   return point{ x_scaled, y_scaled };
 }
 
-// callback when data is sent
+/**
+ * @brief Callback function for ESP-NOW send status.
+ * 
+ * @param mac_addr The MAC address of the device the message was sent to.
+ * @param status The status of the send operation.
+ */
 auto on_send(const uint8_t *mac_addr, esp_now_send_status_t status) -> void {
   Serial.print("[ESP NOW] Last Packet Send Status: ");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
 }
 
+/**
+ * @brief Initializes and starts ESP-NOW for wireless communication.
+ * 
+ * This function sets the device as a Wi-Fi station, initializes ESP-NOW,
+ * registers a callback for send status, and adds a peer for communication.
+ */
 __attribute__((always_inline))
 auto start_esp_now() -> void
 {

@@ -9,11 +9,10 @@
 
 struct __attribute__((packed)) Message {
   uint32_t key;    // Access code
-  int16_t x1;     // Position vector - x desired (-1024 to 1024)
-  int16_t x2;     // unused - always zero
-  int16_t y1;     // Position vector - y desired (-1024 to 1024)
-  int16_t y2;     // rotational vector - turns bot about center (-1024 to 1024)
-  uint16_t trigger; // unused - always zero
+  int16_t  x1;     // Position vector - x desired (-1024 to 1024)
+  int16_t  x2;     // unused - always zero
+  int16_t  y1;     // Position vector - y desired (-1024 to 1024)
+  int16_t  y2;     // rotational vector - turns bot about center (-1024 to 1024)
   bool     bumpL;   // Toggle weapon halt
   bool     bumpR;   // Weapon direction toggle
   bool     stickL;  // (unreliable - ignored)
@@ -60,13 +59,9 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   // Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void setup() {
-  Serial.begin(115200);
-  
+void setup() {  
   // Initialize data structure
   data.key = 0x5C077BAD;
-  data.x2 = 0;
-  data.trigger = 0;
   
   // Configure input pins
   pinMode(PIN_BUMPR, INPUT_PULLUP);
@@ -79,7 +74,6 @@ void setup() {
 
   // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
     return;
   }
 
@@ -93,7 +87,6 @@ void setup() {
   peerInfo.encrypt = false;
   
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
     return;
   }
 
@@ -165,16 +158,11 @@ void loop() {
   data.x1 = readJoystick(PIN_ANALOG_X2, X2_CAL);
   data.y2 = readJoystick(PIN_ANALOG_Y2, Y2_CAL);
 
-  // Optional debug output  
-  Serial.printf("Mapped values - X1: %d, Y1: %d, X2: %d Y2: %d   ", 
-               data.x1, data.y1, data.x2, data.y2);
-  Serial.printf("buttons - Left: %d, Right: %d, RightStick: %d, LeftStick: %d \n", data.bumpL, data.bumpR, data.stickR, data.stickL);
-
   // Send message via ESP-NOW
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *)&data, sizeof(data));
   
   if (result != ESP_OK) {
-    Serial.println("Error sending the data");
+    //correction logic... if I cared.
   }
 
   // Maintain 20Hz update rate

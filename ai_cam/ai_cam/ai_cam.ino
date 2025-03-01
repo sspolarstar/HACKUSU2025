@@ -19,44 +19,31 @@ using eloq::wifi;
 using eloq::viz::collectionServer;
 
 // ----- TYPES -----
-struct point {
-  int16_t x{ 0 };
-  int16_t y{ 0 };
-
+struct bounds {
   static inline constexpr int16_t MAX_Y = 1023;
   static inline constexpr int16_t MAX_X = 1023;
   static inline constexpr int16_t MIN_Y = -1024;
   static inline constexpr int16_t MIN_X = -1024;
-
-  point& operator=(const point& other) {
-    x = std::clamp(other.x, MIN_X, MAX_X);
-    y = std::clamp(other.y, MIN_Y, MAX_Y);
-    return *this;
-  }
-
-  point& operator=(point&& other) noexcept {
-    x = std::clamp(other.x, MIN_X, MAX_X);
-    y = std::clamp(other.y, MIN_Y, MAX_Y);
-    return *this;
-  }
-
-  point(const int16_t x, const int16_t y)
-    : x(std::clamp(x, MIN_X, MAX_X)), y(std::clamp(y, MIN_Y, MAX_Y)) {}
-  point(const point& other)
-    : x(std::clamp(other.x, MIN_X, MAX_X)), y(std::clamp(other.y, MIN_Y, MAX_Y)) {}
-  point(point&& other) noexcept
-    : x(std::clamp(other.x, MIN_X, MAX_X)), y(std::clamp(other.y, MIN_Y, MAX_Y)) {}
 };
 
 using msg_key_t = uint32_t;
 
 struct __attribute__((packed)) position
 {
+  struct percentage {
+    uint8_t val{0};
+
+    constexpr explicit percentage(const uint8_t val) : val(std::clamp(val, MIN, MAX)) {}
+
+    static constexpr inline uint8_t MIN = 0;
+    static constexpr inline uint8_t MAX = 100;
+  };
+
   msg_key_t msg_key{0xDEADBEEF};
   int16_t x;
   int16_t y;
-
-  static constexpr inline auto NOT_IN_FRAME = std::numeric_limits<int16_t>::max();
+  percentage confidence{0};
+  bool in_frame{false};
 };
 
 struct sender 
@@ -102,7 +89,7 @@ auto start_camera() -> void {
  * @return std::optional<point> The coordinates of the target object if found, otherwise std::nullopt.
  */
 [[nodiscard]] __attribute__((always_inline)) 
-auto locate_target() -> std::optional<point> {
+auto locate_target() -> std::optional<position> {
   // capture a single frame, if the frame fails return nullopt
   if (!camera.capture().isOk()) {
     Serial.println(camera.exception.toString());
@@ -157,20 +144,6 @@ auto locate_target() -> std::optional<point> {
   const auto img_width = (int16_t)camera.resolution.getWidth();
   const auto img_height = (int16_t)camera.resolution.getHeight();
 
-  Serial.printf("[CAM][DEBUG] tbb:"
-                "\n  x: %d"
-                "\n  y: %d"
-                "\n  width: %d"
-                "\n  height: %d"
-                "\n  img w: %d"
-                "\n  img h: %d\n",
-                target_bounding_box.x,
-                target_bounding_box.y,
-                target_bounding_box.width,
-                target_bounding_box.height,
-                img_width, img_height
-                );
-
   // the first portion of this equation, b.x + (b.width / 2), locates
   // point at the center of the bounding box, and the second part of
   // the equation, - (img_width / 2), moves the point relative to the
@@ -180,14 +153,17 @@ auto locate_target() -> std::optional<point> {
 
   // Now we need to scale this code from the range of image width
   // to the range set by the point class
-  const auto x_scaled = x * point::MAX_X / img_width;
-  const auto y_scaled = y * point::MAX_Y / img_height;
+  const auto x_scaled = x * bounds::MAX_X / img_width;
+  const auto y_scaled = y * bounds::MAX_Y / img_height;
+
+  // scale the confidence to 0 to 100
+  const auto confidence = position::percentage((uint8_t)(target_bounding_box.value * 100));
 
   // Print out a status message about the point found
   Serial.printf("[CAM] Located object at (x, y): (%d, %d).\n",
                 x_scaled, y_scaled);
 
-  return point{ x_scaled, y_scaled };
+  return position{ 0xDEADBEEF, x_scaled, y_scaled, confidence, true };
 }
 
 /**
@@ -252,16 +228,11 @@ void loop() {
   const auto star_loc = locate_target();
 
   // set up a message position to send across esp now
-  position msg;
+  position msg{};
 
   // if the star was located, set the messages x and y values
   if (star_loc.has_value()) {
-    msg.x = star_loc->x;
-    msg.y = star_loc->y;
-  }
-  else {
-    msg.x = position::NOT_IN_FRAME;
-    msg.y = position::NOT_IN_FRAME;
+    msg = star_loc.value();
   }
 
   // Send the message out over esp now

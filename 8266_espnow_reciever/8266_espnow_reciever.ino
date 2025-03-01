@@ -57,12 +57,23 @@ struct __attribute__((packed)) Message{
 };
 
 // Struct to recieve camera correction vector
-struct __attribute__((packed)) CorrectVect{
-  uint32_t key; // Code to manage access to device
-  int16_t x; // Correction in X direction
-  int16_t y; // Correction in y direction
-};
+struct __attribute__((packed)) CorrectVect
+{
+  struct percentage {
+    uint8_t val{0};
 
+    constexpr explicit percentage(const uint8_t val) : val(std::clamp(val, MIN, MAX)) {}
+
+    static constexpr inline uint8_t MIN = 0;
+    static constexpr inline uint8_t MAX = 100;
+  };
+
+  msg_key_t msg_key{0xDEADBEEF};
+  int16_t x;
+  int16_t y;
+  percentage confidence{0};
+  bool in_frame{false};
+};
 Message messageIn;
 CorrectVect cameraIn;
 bool newMessage = 0;

@@ -246,20 +246,29 @@ void shutdownSystems() {
 
 }
 
-void controlServoMotors(int x, int y){
-  if (y > 0){
-    udPWM.writeMicroseconds(int 1750);
-  }
-  else if (y < 0){
-    upPWM.writeMicroseconds(int 1750);
-  }
-  else{
-    udPWM.writeMicroseconds(1500)
-  }
+void controlServoMotors(const CorrectVect& camera_data){
+  // check confidence range is within 50%
+  const bool is_confident = (camera_data.confidence.val > 50);
+  // check if a target is in range
+  const bool in_frame = camera_data.in_frame;
+
+  // determine if we should attempt to target something
+  const bool should_target = is_confident and in_frame;
+
+  // --- up/down control ---
+  const auto y_control = [&](){
+    if (should_target) {
+      return camera_data.y > 0 ? 1550 : 1450;
+    } else {
+      return 1500;
+    }
+  }();
+  udPWM.writeMicroseconds(y_control);
+
+  // --- up/down control ---
   lrPWM.writeMicroseconds(1500);
   //udPWM.writeMicroseconds(1500 - (y/2));
   //lrPWM.writeMicroseconds(1500 - (x/2));
-  
 }
 
 
@@ -278,8 +287,7 @@ void loop() {
     controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.x2, messageIn.y2);
   }
 
-  if(cameraIn.in_frame)
-    controlServoMotors(cameraIn.x, cameraIn.y); 
+  controlServoMotors(cameraIn);
   
   
 }

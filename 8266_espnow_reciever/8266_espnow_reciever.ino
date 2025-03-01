@@ -13,13 +13,14 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 */
 
 // Correct GPIO pin definitions for ESP8266
-#define WeaponSignal 16  // D0 = GPIO 16
+// #define WeaponSignal 16  // D0 = GPIO 16
 #define WheelLF 12      // D5 = GPIO 14
 #define WheelLR 14      // D6 = GPIO 12
 #define WheelRF 15      // D7 = GPIO 13
 #define WheelRR 13      // D8 = GPIO 15
-#define ServoLR 7      // D1 = GPIO 7
-#define ServoUD 8     // D2 = GPIO 8
+
+#define ServoLR 5      // D1 = GPIO 5
+#define ServoUD 4     // D2 = GPIO 4
 
 #define WHEEL_DIAMETER 30.0    // mm
 #define AXLE_LENGTH 115.0      // mm
@@ -35,10 +36,9 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 #define MM_TO_SPEED_FACTOR (MOTOR_MAX_SPEED / (WHEEL_DIAMETER_MM * PI))
 
 //Packet Keys for data received
-#define MESSAGE_KEY 0xDEADBEEF
-#define CAMERA_KEY 0xBEEFDEAD
+#define MESSAGE_KEY 0x5C077BAD
+#define CAMERA_KEY 0xDEADBEEF
 // Create servo object to control the weapon ESC
-Servo weaponESC;
 Servo udPWM;
 Servo lrPWM;
 
@@ -57,56 +57,52 @@ struct __attribute__((packed)) Message{
 };
 
 // Struct to recieve camera correction vector
-struct __attribute__((packed)) correctVect{
+struct __attribute__((packed)) CorrectVect{
   uint32_t key; // Code to manage access to device
   int16_t x; // Correction in X direction
   int16_t y; // Correction in y direction
-}
+};
 
 Message messageIn;
-correctVect cameraIn;
+CorrectVect cameraIn;
 bool newMessage = 0;
+bool newCameraMessage = 0;
 
 // Safety timeout variables
 unsigned long lastMessageTime = 0;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
-// Weapon control variables
-bool weaponEnabled = false;
-bool weaponDirection = true; // true = normal, false = counter
-const int WEAPON_MIN_SIGNAL = 1000; // Minimum PWM signal (stopped)
-const int WEAPON_MAX_SIGNAL = 2000; // Maximum PWM signal (full speed)
-
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
+  Serial.println("message found");
   // Copy incoming data
   //memcpy(&messageIn, incomingData, sizeof(messageIn));
 
   // Nicks psuedocode
   uint8_t msg_buffer[sizeof(Message)] = {0};
   memcpy(&msg_buffer, incomingData, len);
-  uint32_t msg_key = msg_buffer[0] << 24 | msg_buffer[1] << 16 | msg_buffer[2] << 8 | msg_buffer[3];
+
+  uint32_t msg_key = msg_buffer[3] << 24 | msg_buffer[2] << 16 | msg_buffer[1] << 8 | msg_buffer[0];
+  // Serial.printf("KEY FOUND = %x \n", msg_key);
   // this might also work: uint32_t msg_key = *((uint_32_t*)&msg_buffer);
   switch (msg_key) {
     case MESSAGE_KEY:
-      Message message = (Message)msg_buffer;
-      // you might have to write this as Message message = *((Message*)&msg_buffer);
+        // Serial.println("Message from Ctnl");
+        // Message message = (Message)msg_buffer;
+        // you might have to write this as Message message = *((Message*)&msg_buffer);
         memcpy(&messageIn, msg_buffer, sizeof(messageIn));
         newMessage = 1;
         lastMessageTime = millis(); // Update last message timestamp
         digitalWrite(BUILTIN_LED, LOW);
         break;
     case CAMERA_KEY:
-      correctVect vec = (correctVect)msg_buffer;
-        //servoWriteFreq(1500 + (cameraOut/2));
-        vec.x = 
-        memcpy(&messageIn, incomingData, sizeof(messageIn));
+        // Serial.println("Message from cam");
+        memcpy(&cameraIn, incomingData, sizeof(cameraIn));
+        newCameraMessage = 1;
         break;
-  }
-
-  if((messageIn.key != 0x5C077BAD)){
-    Serial.println("key Rejected");
-    return;
+    default:
+      Serial.println("bad key!");
+      break;
   }
 
 }
@@ -133,10 +129,6 @@ void setup() {
   pinMode(WheelRF, OUTPUT);
   pinMode(WheelRR, OUTPUT);
   
-  // Initialize weapon ESC
-  weaponESC.attach(WeaponSignal);
-  weaponESC.writeMicroseconds(1000);  // Set to zero throttle
-
   // Initialize arm PWM
   udPWM.attach(ServoUD);
   udPWM.writeMicroseconds(1500);
@@ -152,7 +144,7 @@ void setup() {
   digitalWrite(BUILTIN_LED, LOW);
   
   // Set PWM frequency for drive motors
-  analogWriteFreq(5000);
+  analogWriteFreq(20000);
   
  // Set device as WiFi station
   WiFi.mode(WIFI_STA);
@@ -171,16 +163,6 @@ void setup() {
   esp_now_register_recv_cb(OnDataRecv);
 }
 
-void controlWeapon() {
-  if (!weaponEnabled || !messageIn.bumpL) {
-    weaponESC.writeMicroseconds(1000);  // Zero throttle with brake
-    return;
-  }
-  
-  // If weapon enabled and allowed to spin
-  int weaponSpeed = messageIn.bumpR ? 2000 : 1100;  // Full throttle or zero
-  weaponESC.writeMicroseconds(weaponSpeed);
-}
 
 void blink(){
   //change LED color
@@ -191,10 +173,16 @@ void blink(){
   }
 }
 // Function to control drive motors
-void controlDriveMotors(int x, int y, int rotation) {
+void controlDriveMotors(int x, int y, int cam, int rotation) {
+  Serial.printf("Before Constraint:\n");
+  Serial.printf("x1: %d, y1: %d\n", x, y);
   // Normalize inputs to the -1023 to 1023 range
   x = constrain(x, -1023, 1023);
   y = constrain(y, -1023, 1023);
+
+  Serial.printf("After Constraint:\n");
+  Serial.printf("x1: %d, y1: %d\n", x, y);
+
   rotation = constrain(rotation, -1023, 1023);
 
   float leftSpeed;
@@ -253,43 +241,37 @@ void shutdownSystems() {
   analogWrite(WheelLR, 0);
   analogWrite(WheelRF, 0);
   analogWrite(WheelRR, 0);
-  
-  // Stop weapon with brake
-  analogWrite(WeaponSignal, WEAPON_MIN_SIGNAL);
-  
-  weaponEnabled = false;
+
+  udPWM.writeMicroseconds(1500);
+  lrPWM.writeMicroseconds(1500);
+
 }
 
-/*
 void controlServoMotors(int x, int y){
-
+  udPWM.writeMicroseconds(1500);
+  lrPWM.writeMicroseconds(1500);
 }
-*/
+
 
 void loop() {
+
   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
     shutdownSystems();
     digitalWrite(BUILTIN_LED, HIGH);//blink(); // Visual indication of timeout
     return;
   }
+
   
   if (newMessage == 1) {
     newMessage = 0;
-    
-    // Update weapon state
-    weaponEnabled = messageIn.bumpL;
-    weaponDirection = messageIn.bumpR;
-    
-    // Control systems
-    controlWeapon();
-    controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.y2);
+    controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.x2, messageIn.y2);
   }
 
-  /*
-  {
-    controlServoMotors();
-  }  
-  */
+  if(newCameraMessage == 1) {
+    newCameraMessage = 0;
+    controlServoMotors(cameraIn.x, cameraIn.y); 
+  }
+  
 
 }

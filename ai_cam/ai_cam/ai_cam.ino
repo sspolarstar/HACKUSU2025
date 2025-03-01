@@ -105,14 +105,9 @@ auto locate_target() -> std::optional<position> {
     return std::nullopt;
   }
 
-  // print a status message about the image recognition
-  Serial.printf("[CAM] Image recognition completed in %dm.\n",
-                fomo.benchmark.millis());
-
   // if image detection succeeded but we didn't recognize an object
   // also return a nullopt
   if (!fomo.foundAnyObject()) {
-    Serial.println("[CAM] No objects in view.");
     return std::nullopt;
   }
 
@@ -213,20 +208,25 @@ auto start_esp_now() -> void
   }
 
   // Status message 
-  Serial.println("[ESP NOW] ESP Now Startup OK");
+  Serial.println("[ESP NOW] ESP Now Startup OK\n");
 }
 
+__attribute__((always_inline))
+auto check_psram() -> void {
+  Serial.println("----- CHECKING PSRAM -----");
+  
+  if (psramFound()) {
+    Serial.println("PSRAM OK\n");
+  } else {
+    Serial.println("PSRAM NOT FOUND\n");
+  }
+}
 // ----- SETUP -----
 void setup() {
   delay(1000);
   Serial.begin(115200);
 
-  if (psramFound()) {
-    Serial.println("\nPSRAM OK.");
-  } else {
-    Serial.println("\nPSRAM NOT FOUND.");
-  }
-
+  check_psram();
   start_camera();
   start_esp_now();
 }
@@ -247,9 +247,6 @@ void loop() {
   const auto result = esp_now_send(sender::broadcast_address, (uint8_t *) &msg, sizeof(msg));
    
   if (result == ESP_OK) {
-    Serial.println("[ESP NOW] Sent position with success.");
-  }
-  else {
-    Serial.println("[ESP NOW] Error sending the position.");
+    Serial.println("[ESP NOW] Error sending the position data!");
   }
 }

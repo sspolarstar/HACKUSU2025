@@ -211,6 +211,10 @@ auto start_esp_now() -> void
   Serial.println("[ESP NOW] ESP Now Startup OK\n");
 }
 
+/**
+ * @brief Checks is there is PSRAM available for this build. If there is
+ * not, the image recognition may fail.
+ */
 __attribute__((always_inline))
 auto check_psram() -> void {
   Serial.println("----- CHECKING PSRAM -----");
@@ -221,6 +225,7 @@ auto check_psram() -> void {
     Serial.println("PSRAM NOT FOUND\n");
   }
 }
+
 // ----- SETUP -----
 void setup() {
   delay(1000);

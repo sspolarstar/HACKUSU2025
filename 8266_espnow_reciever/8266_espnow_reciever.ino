@@ -18,6 +18,8 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 #define WheelLR 14      // D6 = GPIO 12
 #define WheelRF 15      // D7 = GPIO 13
 #define WheelRR 13      // D8 = GPIO 15
+#define ServoLR 7      // D1 = GPIO 7
+#define ServoUD 8     // D2 = GPIO 8
 
 #define WHEEL_DIAMETER 30.0    // mm
 #define AXLE_LENGTH 115.0      // mm
@@ -32,23 +34,37 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 // Conversion factor for wheel speeds (linear and rotational components)
 #define MM_TO_SPEED_FACTOR (MOTOR_MAX_SPEED / (WHEEL_DIAMETER_MM * PI))
 
+//Packet Keys for data received
+#define MESSAGE_KEY 0xDEADBEEF
+#define CAMERA_KEY 0xBEEFDEAD
 // Create servo object to control the weapon ESC
 Servo weaponESC;
+Servo udPWM;
+Servo lrPWM;
 
 // Struct to receive data 
-struct Message{
+struct __attribute__((packed)) Message{
   uint32_t key; //Code to manage access to device
   int16_t x1;  //Position vector - x desired (-1024 to 1024)
   int16_t x2;  //unused - always zero
   int16_t y1;  //Position vector - y desired (-1024 to 1024)
   int16_t y2;  //rotational vector - turns bot about center (-1024 to 1024)
-  uint16_t trigger; //unused - always zero
+  //uint16_t trigger; //unused - always zero
   bool     bumpL;   //Toggle weapon halt (0 - bot is not allowed to spin weapon, weapon breaks are engaged.) (1 - bot is spinning weapon)
   bool     bumpR;   //Weapon active toggles (0 - counter rotation) (1 - normal rotation)
   bool     stickL;  // (button is unreliable. best to ignore it.)
   bool     stickR;  //inverts robot position
 };
+
+// Struct to recieve camera correction vector
+struct __attribute__((packed)) correctVect{
+  uint32_t key; // Code to manage access to device
+  int16_t x; // Correction in X direction
+  int16_t y; // Correction in y direction
+}
+
 Message messageIn;
+correctVect cameraIn;
 bool newMessage = 0;
 
 // Safety timeout variables
@@ -64,30 +80,43 @@ const int WEAPON_MAX_SIGNAL = 2000; // Maximum PWM signal (full speed)
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
   // Copy incoming data
-  memcpy(&messageIn, incomingData, sizeof(messageIn));
-  if(messageIn.key != 0x5C077BAD){
+  //memcpy(&messageIn, incomingData, sizeof(messageIn));
+
+  // Nicks psuedocode
+  uint8_t msg_buffer[sizeof(Message)] = {0};
+  memcpy(&msg_buffer, incomingData, len);
+  uint32_t msg_key = msg_buffer[0] << 24 | msg_buffer[1] << 16 | msg_buffer[2] << 8 | msg_buffer[3];
+  // this might also work: uint32_t msg_key = *((uint_32_t*)&msg_buffer);
+  switch (msg_key) {
+    case MESSAGE_KEY:
+      Message message = (Message)msg_buffer;
+      // you might have to write this as Message message = *((Message*)&msg_buffer);
+        memcpy(&messageIn, msg_buffer, sizeof(messageIn));
+        newMessage = 1;
+        lastMessageTime = millis(); // Update last message timestamp
+        digitalWrite(BUILTIN_LED, LOW);
+        break;
+    case CAMERA_KEY:
+      correctVect vec = (correctVect)msg_buffer;
+        //servoWriteFreq(1500 + (cameraOut/2));
+        vec.x = 
+        memcpy(&messageIn, incomingData, sizeof(messageIn));
+        break;
+  }
+
+  if((messageIn.key != 0x5C077BAD)){
     Serial.println("key Rejected");
     return;
   }
-  newMessage = 1;
-  lastMessageTime = millis(); // Update last message timestamp
-  digitalWrite(BUILTIN_LED, LOW);
-  static int count = 0;
-  // Print received message
-  Serial.println("Received message: " + String(count));
-  count++;
-  Serial.println(messageIn.key);
-  Serial.println(messageIn.x1);
-  Serial.println(messageIn.x2);
-  Serial.println(messageIn.y1);
-  Serial.println(messageIn.y2);
-  Serial.println(messageIn.trigger);
-  Serial.println(messageIn.bumpL);
-  Serial.println(messageIn.bumpR);
-  Serial.println(messageIn.stickL);
-  Serial.println(messageIn.stickR);
-  Serial.println();
+
 }
+
+/*
+void CameraRecv(){
+  cameraIn.x1
+  cameraIn.y1
+}
+*/
 
 void setup() {
   // Initialize Serial first for debugging
@@ -107,6 +136,12 @@ void setup() {
   // Initialize weapon ESC
   weaponESC.attach(WeaponSignal);
   weaponESC.writeMicroseconds(1000);  // Set to zero throttle
+
+  // Initialize arm PWM
+  udPWM.attach(ServoUD);
+  udPWM.writeMicroseconds(1500);
+  lrPWM.attach(ServoLR);
+  lrPWM.writeMicroseconds(1500);
   
   // Initialize all drive outputs to 0
   analogWrite(WheelLF, 0);
@@ -117,7 +152,7 @@ void setup() {
   digitalWrite(BUILTIN_LED, LOW);
   
   // Set PWM frequency for drive motors
-  analogWriteFreq(14000);
+  analogWriteFreq(5000);
   
  // Set device as WiFi station
   WiFi.mode(WIFI_STA);
@@ -165,7 +200,7 @@ void controlDriveMotors(int x, int y, int rotation) {
   float leftSpeed;
   float rightSpeed;
 
-  if(!messageIn.stickL){
+  if(messageIn.stickL){
     //tank drive
     leftSpeed = y;
     rightSpeed = rotation;
@@ -188,7 +223,7 @@ void controlDriveMotors(int x, int y, int rotation) {
 
   }
   // Invert controls if stickR is pressed
-  if (messageIn.stickR) {
+  if (!messageIn.stickR) {
     leftSpeed = -leftSpeed;
     rightSpeed = -rightSpeed;
   }
@@ -225,6 +260,12 @@ void shutdownSystems() {
   weaponEnabled = false;
 }
 
+/*
+void controlServoMotors(int x, int y){
+
+}
+*/
+
 void loop() {
   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
@@ -244,4 +285,11 @@ void loop() {
     controlWeapon();
     controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.y2);
   }
+
+  /*
+  {
+    controlServoMotors();
+  }  
+  */
+
 }

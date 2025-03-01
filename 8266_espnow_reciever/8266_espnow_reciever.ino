@@ -74,7 +74,6 @@ const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
-  Serial.println("message found");
   // Copy incoming data
   //memcpy(&messageIn, incomingData, sizeof(messageIn));
 
@@ -96,7 +95,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
         digitalWrite(BUILTIN_LED, LOW);
         break;
     case CAMERA_KEY:
-        // Serial.println("Message from cam");
+        Serial.println("Message from cam");
         memcpy(&cameraIn, incomingData, sizeof(cameraIn));
         newCameraMessage = 1;
         break;
@@ -144,7 +143,7 @@ void setup() {
   digitalWrite(BUILTIN_LED, LOW);
   
   // Set PWM frequency for drive motors
-  analogWriteFreq(20000);
+  analogWriteFreq(1000);
   
  // Set device as WiFi station
   WiFi.mode(WIFI_STA);
@@ -174,16 +173,12 @@ void blink(){
 }
 // Function to control drive motors
 void controlDriveMotors(int x, int y, int cam, int rotation) {
-  Serial.printf("Before Constraint:\n");
-  Serial.printf("x1: %d, y1: %d\n", x, y);
+
   // Normalize inputs to the -1023 to 1023 range
-  x = constrain(x, -1023, 1023);
-  y = constrain(y, -1023, 1023);
+  x = constrain(x, -1023, 1023)/32;
+  y = constrain(y, -1023, 1023)/32;
 
-  Serial.printf("After Constraint:\n");
-  Serial.printf("x1: %d, y1: %d\n", x, y);
-
-  rotation = constrain(rotation, -1023, 1023);
+  rotation = rotation/32;
 
   float leftSpeed;
   float rightSpeed;
@@ -273,5 +268,4 @@ void loop() {
     controlServoMotors(cameraIn.x, cameraIn.y); 
   }
   
-
 }

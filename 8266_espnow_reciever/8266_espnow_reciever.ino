@@ -108,7 +108,6 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
     case CAMERA_KEY:
         // Serial.println("Message from cam");
         memcpy(&cameraIn, incomingData, sizeof(cameraIn));
-        newCameraMessage = 1;
         break;
     default:
       // Serial.println("bad key!");
@@ -117,16 +116,10 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
 
 }
 
-/*
-void CameraRecv(){
-  cameraIn.x1
-  cameraIn.y1
-}
-*/
 
 void setup() {
   // Initialize Serial first for debugging
-  // Serial.begin(115200);
+  Serial.begin(115200);
   // while (!Serial) {
   //   ; // wait for serial port to connect
   // }
@@ -285,9 +278,8 @@ void loop() {
     controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.x2, messageIn.y2);
   }
 
-  if(newCameraMessage == 1) {
-    newCameraMessage = 0;
+  if(cameraIn.in_frame)
     controlServoMotors(cameraIn.x, cameraIn.y); 
-  }
+  
   
 }

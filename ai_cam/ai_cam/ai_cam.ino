@@ -2,6 +2,8 @@
 #define WIFI_PASS "june_3_wins!"
 #define HOSTNAME "esp32cam"
 
+#include <Arduino.h>
+
 #include <eloquent_esp32cam.h>
 #include <eloquent_esp32cam/extra/esp32/wifi/sta.h>
 #include <eloquent_esp32cam/viz/image_collection.h>
@@ -148,8 +150,8 @@ auto locate_target() -> std::optional<position> {
   // point at the center of the bounding box, and the second part of
   // the equation, - (img_width / 2), moves the point relative to the
   // center of the camera view
-  const auto x = (int16_t)target_bounding_box.x + ((int16_t)target_bounding_box.width / 2) - ((int16_t)img_width / 4);
-  const auto y = (int16_t)target_bounding_box.y + ((int16_t)target_bounding_box.height / 2) - ((int16_t)img_height / 4);
+  const auto x = (int16_t)target_bounding_box.x + ((int16_t)target_bounding_box.width / 2) - ((int16_t)img_width / 2);
+  const auto y = (int16_t)target_bounding_box.y + ((int16_t)target_bounding_box.height / 2) - ((int16_t)img_height / 2);
 
   // Now we need to scale this code from the range of image width
   // to the range set by the point class
@@ -218,6 +220,12 @@ auto start_esp_now() -> void
 void setup() {
   delay(1000);
   Serial.begin(115200);
+
+  if (psramFound()) {
+    Serial.println("\nPSRAM OK.");
+  } else {
+    Serial.println("\nPSRAM NOT FOUND.");
+  }
 
   start_camera();
   start_esp_now();

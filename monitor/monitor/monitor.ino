@@ -1,5 +1,5 @@
-#include <ESP8266WiFi.h>
-#include <espnow.h>
+#include <esp_now.h>
+#include <WiFi.h>
 
 #define CAMERA_KEY 0xDEADBEEF
 
@@ -25,7 +25,7 @@ CorrectVect cameraIn;
 bool newCameraMessage = 0;
 
 // Callback when data is received
-void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
+void OnDataRecv(const esp_now_recv_info* mac, const uint8_t *incomingData, int len) {
   // Copy incoming data
   //memcpy(&messageIn, incomingData, sizeof(messageIn));
 
@@ -48,18 +48,14 @@ void setup() {
   Serial.begin(115200);
   // put your setup code here, to run once:
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
 
   // Init ESP-NOW
-  if (esp_now_init() != 0) {
-    // Serial.println("Error initializing ESP-NOW");
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
     return;
-  } else{
-    // Serial.println("esp now initialized");
   }
 
-  // Set up receive callback
-  esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
+  // Set up receive callback  
   esp_now_register_recv_cb(OnDataRecv);
 
   Serial.println("Configuration OK...");

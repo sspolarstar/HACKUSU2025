@@ -1,5 +1,12 @@
-#include <nwad123-hackusu-25_inferencing.h>
+#define WIFI_SSID "nicks_hotspot"
+#define WIFI_PASS "june_3_wins!"
+#define HOSTNAME "esp32cam"
+
 #include <eloquent_esp32cam.h>
+#include <eloquent_esp32cam/extra/esp32/wifi/sta.h>
+#include <eloquent_esp32cam/viz/image_collection.h>
+
+#include <nwad123-hackusu-25_inferencing.h>
 #include <eloquent_esp32cam/edgeimpulse/fomo.h>
 #include <algorithm>
 #include <numeric>
@@ -8,6 +15,8 @@
 
 using eloq::camera;
 using eloq::ei::fomo;
+using eloq::wifi;
+using eloq::viz::collectionServer;
 
 // ----- TYPES -----
 struct point {
@@ -72,6 +81,7 @@ auto start_camera() -> void {
   // cam setup
   camera.pinout.aithinker();
   camera.brownout.disable();
+  camera.quality.high();
 
   // Object detection setup
   camera.resolution.yolo();
@@ -144,15 +154,29 @@ auto locate_target() -> std::optional<point> {
   // Derive the X,Y point of the center of the object relative to the
   // center of the camera view. We represent this point as the
   // 2d vector x,y
-  const auto img_width = camera.resolution.getWidth();
-  const auto img_height = camera.resolution.getHeight();
+  const auto img_width = (int16_t)camera.resolution.getWidth();
+  const auto img_height = (int16_t)camera.resolution.getHeight();
+
+  Serial.printf("[CAM][DEBUG] tbb:"
+                "\n  x: %d"
+                "\n  y: %d"
+                "\n  width: %d"
+                "\n  height: %d"
+                "\n  img w: %d"
+                "\n  img h: %d\n",
+                target_bounding_box.x,
+                target_bounding_box.y,
+                target_bounding_box.width,
+                target_bounding_box.height,
+                img_width, img_height
+                );
 
   // the first portion of this equation, b.x + (b.width / 2), locates
   // point at the center of the bounding box, and the second part of
   // the equation, - (img_width / 2), moves the point relative to the
   // center of the camera view
-  const auto x = target_bounding_box.x + (target_bounding_box.width / 2) - (img_width / 2);
-  const auto y = target_bounding_box.y + (target_bounding_box.height / 2) - (img_height / 2);
+  const auto x = (int16_t)target_bounding_box.x + ((int16_t)target_bounding_box.width / 2) - ((int16_t)img_width / 4);
+  const auto y = (int16_t)target_bounding_box.y + ((int16_t)target_bounding_box.height / 2) - ((int16_t)img_height / 4);
 
   // Now we need to scale this code from the range of image width
   // to the range set by the point class

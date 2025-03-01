@@ -157,8 +157,8 @@ auto locate_target() -> std::optional<position> {
   const auto confidence = position::percentage((uint8_t)(target_bounding_box.value * 100));
 
   // Print out a status message about the point found
-  Serial.printf("[CAM] Located object at (x, y): (%d, %d).\n",
-                x_scaled, y_scaled);
+  Serial.printf("[CAM] Located object at (x, y): (%d, %d) in %dm\n",
+                x_scaled, y_scaled, fomo.benchmark.millis());
 
   return position{ 0xDEADBEEF, x_scaled, y_scaled, confidence, true };
 }
@@ -251,7 +251,9 @@ void loop() {
   // Send the message out over esp now
   const auto result = esp_now_send(sender::broadcast_address, (uint8_t *) &msg, sizeof(msg));
    
-  if (result == ESP_OK) {
+  if (result != ESP_OK) {
     Serial.println("[ESP NOW] Error sending the position data!");
+  } else {
+    Serial.println("[ESP NOW] Sent!");
   }
 }

@@ -32,7 +32,7 @@ using msg_key_t = uint32_t;
 
 struct __attribute__((packed)) position
 {
-  struct percentage {
+  struct __attribute__((packed)) percentage {
     uint8_t val{0};
 
     constexpr explicit percentage(const uint8_t val) : val(std::clamp(val, MIN, MAX)) {}

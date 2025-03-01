@@ -106,12 +106,12 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
         digitalWrite(BUILTIN_LED, LOW);
         break;
     case CAMERA_KEY:
-        Serial.println("Message from cam");
+        // Serial.println("Message from cam");
         memcpy(&cameraIn, incomingData, sizeof(cameraIn));
         newCameraMessage = 1;
         break;
     default:
-      Serial.println("bad key!");
+      // Serial.println("bad key!");
       break;
   }
 
@@ -126,11 +126,11 @@ void CameraRecv(){
 
 void setup() {
   // Initialize Serial first for debugging
-  Serial.begin(115200);
-  while (!Serial) {
-    ; // wait for serial port to connect
-  }
-  Serial.println("Starting up...");
+  // Serial.begin(115200);
+  // while (!Serial) {
+  //   ; // wait for serial port to connect
+  // }
+  // Serial.println("Starting up...");
   
   // Configure pins
   pinMode(BUILTIN_LED, OUTPUT);
@@ -162,10 +162,10 @@ void setup() {
 
   // Init ESP-NOW
   if (esp_now_init() != 0) {
-    Serial.println("Error initializing ESP-NOW");
+    // Serial.println("Error initializing ESP-NOW");
     return;
   } else{
-    Serial.println("esp now initialized");
+    // Serial.println("esp now initialized");
   }
 
   // Set up receive callback

@@ -81,6 +81,8 @@ bool newCameraMessage = 0;
 
 // Safety timeout variables
 unsigned long lastMessageTime = 0;
+unsigned long lastCamTime = 0;
+const unsigned long CAM_TIMEOUT = 250;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
 // Callback when data is received
@@ -106,6 +108,10 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
         digitalWrite(BUILTIN_LED, LOW);
         break;
     case CAMERA_KEY:
+        static int count;
+        Serial.printf("count: %d", count);
+        lastCamTime = millis();
+        count++;
         // Serial.println("Message from cam");
         memcpy(&cameraIn, incomingData, sizeof(cameraIn));
         break;
@@ -176,26 +182,18 @@ void blink(){
   }
 }
 // Function to control drive motors
-void controlDriveMotors(int x, int y, int cam, int rotation) {
+void controlDriveMotors(int x, int y) {
 
   // Normalize inputs to the -1023 to 1023 range
   x = constrain(x, -1023, 1023)/32;
   y = constrain(y, -1023, 1023)/32;
 
-  rotation = rotation/32;
-
   float leftSpeed;
   float rightSpeed;
 
-  if(messageIn.stickL){
-    //tank drive
-    leftSpeed = y;
-    rightSpeed = rotation;
-  } else { 
-
     // Calculate wheel speeds
-    leftSpeed = y + rotation * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
-    rightSpeed = y - rotation * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
+    leftSpeed  = y  * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
+    rightSpeed = y * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
 
     // Add strafe component
     leftSpeed += x;
@@ -208,12 +206,9 @@ void controlDriveMotors(int x, int y, int cam, int rotation) {
       rightSpeed = (rightSpeed / maxMagnitude) * MOTOR_MAX_SPEED;
     }
 
-  }
-  // Invert controls if stickR is pressed
-  if (!messageIn.stickR) {
     leftSpeed = -leftSpeed;
     rightSpeed = -rightSpeed;
-  }
+
 
   // Set motor speeds for the left side
   if (leftSpeed >= 0) {
@@ -232,6 +227,8 @@ void controlDriveMotors(int x, int y, int cam, int rotation) {
     analogWrite(WheelRF, 0);
     analogWrite(WheelRR, -rightSpeed);
   }
+
+
 }
 
 void shutdownSystems() {
@@ -241,12 +238,10 @@ void shutdownSystems() {
   analogWrite(WheelRF, 0);
   analogWrite(WheelRR, 0);
 
-  udPWM.writeMicroseconds(1500);
-  lrPWM.writeMicroseconds(1500);
-
 }
 
 void controlServoMotors(const CorrectVect& camera_data){
+
   // check confidence range is within 50%
   const bool is_confident = (camera_data.confidence.val > 50);
   // check if a target is in range
@@ -258,21 +253,52 @@ void controlServoMotors(const CorrectVect& camera_data){
   // --- up/down control ---
   const auto y_control = [&](){
     if (should_target) {
-      return camera_data.y > 0 ? 1550 : 1450;
+      return camera_data.y < 0 ? 1510 : 1490;
     } else {
       return 1500;
     }
   }();
   udPWM.writeMicroseconds(y_control);
 
-  // --- up/down control ---
-  lrPWM.writeMicroseconds(1500);
-  //udPWM.writeMicroseconds(1500 - (y/2));
-  //lrPWM.writeMicroseconds(1500 - (x/2));
+
+  // --- left/right control ---
+  const auto x_control = [&](){
+    if (should_target) {
+      return camera_data.x < 0 ? 1510 : 1490;
+    } else {
+      return 1500;
+    }
+  }();
+  lrPWM.writeMicroseconds(x_control);
 }
 
 
 void loop() {
+  
+  //Control servos first
+  if(messageIn.bumpR){
+    if(messageIn.x2 > 500){
+      lrPWM.writeMicroseconds(1600);
+    } else if(messageIn.x2 < -500) {
+      lrPWM.writeMicroseconds(1400);
+    }
+
+    if(messageIn.y2 > 500){
+      udPWM.writeMicroseconds(1600);
+    } else if(messageIn.y2 < -500) {
+      udPWM.writeMicroseconds(1400);
+    }
+  } else{
+
+  
+    if(millis() - lastCamTime > CAM_TIMEOUT ) {
+      lrPWM.writeMicroseconds(1500);
+      udPWM.writeMicroseconds(1500);
+    } else {
+      Serial.printf("running cam now");
+      controlServoMotors(cameraIn);
+    }
+  }
 
   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
@@ -281,13 +307,13 @@ void loop() {
     return;
   }
 
-  
+
   if (newMessage == 1) {
     newMessage = 0;
-    controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.x2, messageIn.y2);
+    
+    controlDriveMotors(messageIn.x1, messageIn.y1);
   }
 
-  controlServoMotors(cameraIn);
   
   
 }

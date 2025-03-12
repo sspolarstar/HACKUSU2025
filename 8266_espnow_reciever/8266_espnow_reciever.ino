@@ -184,6 +184,9 @@ void blink(){
 // Function to control drive motors
 void controlDriveMotors(int x, int y) {
 
+  Serial.printf("cam: %d\n", cam);
+  // rlPWM.writeMicrosecond(1500)
+
   // Normalize inputs to the -1023 to 1023 range
   x = constrain(x, -1023, 1023)/32;
   y = constrain(y, -1023, 1023)/32;
@@ -238,6 +241,7 @@ void shutdownSystems() {
   analogWrite(WheelRF, 0);
   analogWrite(WheelRR, 0);
 
+<<<<<<< Updated upstream
 }
 
 void controlServoMotors(const CorrectVect& camera_data){
@@ -270,11 +274,31 @@ void controlServoMotors(const CorrectVect& camera_data){
     }
   }();
   lrPWM.writeMicroseconds(x_control);
+=======
+
+}
+
+void controlServoMotors(int x, int y){
+  if (y > 0){
+    udPWM.writeMicroseconds( 1550);
+  }
+  else if (y < 0){
+    udPWM.writeMicroseconds( 1550);
+  }
+  else{
+    udPWM.writeMicroseconds(1500);
+  }
+  lrPWM.writeMicroseconds(1500);
+  //udPWM.writeMicroseconds(1500 - (y/2));
+  //lrPWM.writeMicroseconds(1500 - (x/2));
+  
+>>>>>>> Stashed changes
 }
 
 
 void loop() {
   
+<<<<<<< Updated upstream
   //Control servos first
   if(messageIn.bumpR){
     if(messageIn.x2 > 500){
@@ -299,6 +323,11 @@ void loop() {
       controlServoMotors(cameraIn);
     }
   }
+=======
+  
+  if(cameraIn.in_frame)
+    controlServoMotors(cameraIn.x, cameraIn.y); 
+>>>>>>> Stashed changes
 
   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
@@ -314,6 +343,10 @@ void loop() {
     controlDriveMotors(messageIn.x1, messageIn.y1);
   }
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
   
   
 }

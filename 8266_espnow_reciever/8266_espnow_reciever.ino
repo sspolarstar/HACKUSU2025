@@ -184,7 +184,6 @@ void blink(){
 // Function to control drive motors
 void controlDriveMotors(int x, int y) {
 
-  Serial.printf("cam: %d\n", cam);
   // rlPWM.writeMicrosecond(1500)
 
   // Normalize inputs to the -1023 to 1023 range
@@ -195,8 +194,8 @@ void controlDriveMotors(int x, int y) {
   float rightSpeed;
 
     // Calculate wheel speeds
-    leftSpeed  = y  * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
-    rightSpeed = y * (AXLE_LENGTH_MM / 2.0) * MM_TO_SPEED_FACTOR;
+    leftSpeed  = y;  
+    rightSpeed = y;
 
     // Add strafe component
     leftSpeed += x;
@@ -241,7 +240,6 @@ void shutdownSystems() {
   analogWrite(WheelRF, 0);
   analogWrite(WheelRR, 0);
 
-<<<<<<< Updated upstream
 }
 
 void controlServoMotors(const CorrectVect& camera_data){
@@ -257,7 +255,7 @@ void controlServoMotors(const CorrectVect& camera_data){
   // --- up/down control ---
   const auto y_control = [&](){
     if (should_target) {
-      return camera_data.y < 0 ? 1510 : 1490;
+      return camera_data.y < 0 ? 1550 : 1450;
     } else {
       return 1500;
     }
@@ -268,50 +266,36 @@ void controlServoMotors(const CorrectVect& camera_data){
   // --- left/right control ---
   const auto x_control = [&](){
     if (should_target) {
-      return camera_data.x < 0 ? 1510 : 1490;
+      return camera_data.x < 0 ? 1550 : 1450;
     } else {
       return 1500;
     }
   }();
   lrPWM.writeMicroseconds(x_control);
-=======
-
-}
-
-void controlServoMotors(int x, int y){
-  if (y > 0){
-    udPWM.writeMicroseconds( 1550);
-  }
-  else if (y < 0){
-    udPWM.writeMicroseconds( 1550);
-  }
-  else{
-    udPWM.writeMicroseconds(1500);
-  }
-  lrPWM.writeMicroseconds(1500);
-  //udPWM.writeMicroseconds(1500 - (y/2));
-  //lrPWM.writeMicroseconds(1500 - (x/2));
-  
->>>>>>> Stashed changes
 }
 
 
 void loop() {
   
-<<<<<<< Updated upstream
   //Control servos first
   if(messageIn.bumpR){
     if(messageIn.x2 > 500){
       lrPWM.writeMicroseconds(1600);
     } else if(messageIn.x2 < -500) {
       lrPWM.writeMicroseconds(1400);
+    } else {
+      lrPWM.writeMicroseconds(1500);
+
     }
 
     if(messageIn.y2 > 500){
-      udPWM.writeMicroseconds(1600);
-    } else if(messageIn.y2 < -500) {
       udPWM.writeMicroseconds(1400);
+    } else if(messageIn.y2 < -500) {
+      udPWM.writeMicroseconds(1600);
+    } else {
+      udPWM.writeMicroseconds(1500);
     }
+
   } else{
 
   
@@ -323,11 +307,6 @@ void loop() {
       controlServoMotors(cameraIn);
     }
   }
-=======
-  
-  if(cameraIn.in_frame)
-    controlServoMotors(cameraIn.x, cameraIn.y); 
->>>>>>> Stashed changes
 
   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
@@ -343,10 +322,6 @@ void loop() {
     controlDriveMotors(messageIn.x1, messageIn.y1);
   }
 
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
   
   
 }

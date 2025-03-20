@@ -14,13 +14,14 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 
 // Correct GPIO pin definitions for ESP8266
 // #define WeaponSignal 16  // D0 = GPIO 16
+#define WeaponSignal 4  // D0 = GPIO 16
 #define WheelLF 12      // D5 = GPIO 14
 #define WheelLR 14      // D6 = GPIO 12
 #define WheelRF 15      // D7 = GPIO 13
 #define WheelRR 13      // D8 = GPIO 15
 
-#define ServoLR 5      // D1 = GPIO 5
-#define ServoUD 4     // D2 = GPIO 4
+// #define ServoLR 5      // D1 = GPIO 5
+// #define ServoUD 4     // D2 = GPIO 4
 
 #define WHEEL_DIAMETER 30.0    // mm
 #define AXLE_LENGTH 115.0      // mm
@@ -37,11 +38,11 @@ Bot will be remote controlled via ESP-now. The protocol should send a packet at 
 
 //Packet Keys for data received
 #define MESSAGE_KEY 0x5C077BAD
-#define CAMERA_KEY 0xDEADBEEF
+// #define CAMERA_KEY 0xDEADBEEF
 // Create servo object to control the weapon ESC
-Servo udPWM;
-Servo lrPWM;
-
+// Servo udPWM;
+// Servo lrPWM;
+Servo weaponESC;
 // Struct to receive data 
 struct __attribute__((packed)) Message{
   uint32_t key; //Code to manage access to device
@@ -49,76 +50,40 @@ struct __attribute__((packed)) Message{
   int16_t x2;  //unused - always zero
   int16_t y1;  //Position vector - y desired (-1024 to 1024)
   int16_t y2;  //rotational vector - turns bot about center (-1024 to 1024)
-  //uint16_t trigger; //unused - always zero
   bool     bumpL;   //Toggle weapon halt (0 - bot is not allowed to spin weapon, weapon breaks are engaged.) (1 - bot is spinning weapon)
   bool     bumpR;   //Weapon active toggles (0 - counter rotation) (1 - normal rotation)
-  bool     stickL;  // (button is unreliable. best to ignore it.)
+  bool     stickL;  //swaps drive modes
   bool     stickR;  //inverts robot position
 };
 
 // Struct to recieve camera correction vector
-struct __attribute__((packed)) CorrectVect
-{
-  struct __attribute__((packed)) percentage {
-    uint8_t val{0};
-
-    constexpr explicit percentage(const uint8_t val) : val(std::clamp(val, MIN, MAX)) {}
-
-    static constexpr inline uint8_t MIN = 0;
-    static constexpr inline uint8_t MAX = 100;
-  };
-
-  uint32_t msg_key{0xDEADBEEF};
-  int16_t x;
-  int16_t y;
-  percentage confidence{0};
-  bool in_frame{false};
-};
 Message messageIn;
-CorrectVect cameraIn;
+
 bool newMessage = 0;
 bool newCameraMessage = 0;
 
 // Safety timeout variables
 unsigned long lastMessageTime = 0;
-unsigned long lastCamTime = 0;
-const unsigned long CAM_TIMEOUT = 250;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
+
+bool weaponEnabled = false;
+bool weaponSpeed = false; // true = fast, false = slow
 
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
   // Copy incoming data
-  //memcpy(&messageIn, incomingData, sizeof(messageIn));
-
-  // Nicks psuedocode
-  uint8_t msg_buffer[sizeof(Message)] = {0};
-  memcpy(&msg_buffer, incomingData, len);
-
-  uint32_t msg_key = msg_buffer[3] << 24 | msg_buffer[2] << 16 | msg_buffer[1] << 8 | msg_buffer[0];
-  // Serial.printf("KEY FOUND = %x \n", msg_key);
-  // this might also work: uint32_t msg_key = *((uint_32_t*)&msg_buffer);
-  switch (msg_key) {
-    case MESSAGE_KEY:
-        // Serial.println("Message from Ctnl");
-        // Message message = (Message)msg_buffer;
-        // you might have to write this as Message message = *((Message*)&msg_buffer);
-        memcpy(&messageIn, msg_buffer, sizeof(messageIn));
-        newMessage = 1;
-        lastMessageTime = millis(); // Update last message timestamp
-        digitalWrite(BUILTIN_LED, LOW);
-        break;
-    case CAMERA_KEY:
-        static int count;
-        Serial.printf("count: %d", count);
-        lastCamTime = millis();
-        count++;
-        // Serial.println("Message from cam");
-        memcpy(&cameraIn, incomingData, sizeof(cameraIn));
-        break;
-    default:
-      // Serial.println("bad key!");
-      break;
+  memcpy(&messageIn, incomingData, sizeof(messageIn));
+  if(messageIn.key != 0x5C077BAD){
+    Serial.println("key Rejected");
+    return;
   }
+  newMessage = 1;
+  lastMessageTime = millis(); // Update last message timestamp
+  digitalWrite(BUILTIN_LED, LOW);
+  static int count = 0;
+  // Print received message
+  // Serial.println("Received message: " + String(count));
+  count++;
 
 }
 
@@ -138,12 +103,10 @@ void setup() {
   pinMode(WheelRF, OUTPUT);
   pinMode(WheelRR, OUTPUT);
   
-  // Initialize arm PWM
-  udPWM.attach(ServoUD);
-  udPWM.writeMicroseconds(1500);
-  lrPWM.attach(ServoLR);
-  lrPWM.writeMicroseconds(1500);
-  
+  // Initialize weapon ESC
+  weaponESC.attach(WeaponSignal);
+  weaponESC.writeMicroseconds(1000);  // Set to zero throttle
+
   // Initialize all drive outputs to 0
   analogWrite(WheelLF, 0);
   analogWrite(WheelLR, 0);
@@ -153,7 +116,7 @@ void setup() {
   digitalWrite(BUILTIN_LED, LOW);
   
   // Set PWM frequency for drive motors
-  analogWriteFreq(1000);
+  analogWriteFreq(30000);
   
  // Set device as WiFi station
   WiFi.mode(WIFI_STA);
@@ -170,8 +133,19 @@ void setup() {
   // Set up receive callback
   esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
   esp_now_register_recv_cb(OnDataRecv);
+
 }
 
+void controlWeapon() {
+  if (!weaponEnabled || !messageIn.bumpL) {
+    weaponESC.writeMicroseconds(1000);  // Zero throttle with brake
+    return;
+  }
+  
+  // If weapon enabled and allowed to spin
+  int weaponSpeed = messageIn.bumpR ? 2000 : 1200;  // Full throttle or slow speed
+  weaponESC.writeMicroseconds(weaponSpeed);
+}
 
 void blink(){
   //change LED color
@@ -181,145 +155,135 @@ void blink(){
     digitalWrite(BUILTIN_LED, HIGH);
   }
 }
-// Function to control drive motors
-void controlDriveMotors(int x, int y) {
 
-  // rlPWM.writeMicrosecond(1500)
+// Enhanced drive motor control function with active braking
+void controlDriveMotors(int x, int y, int y2) {
 
-  // Normalize inputs to the -1023 to 1023 range
-  x = constrain(x, -1023, 1023)/32;
-  y = constrain(y, -1023, 1023)/32;
-
-  float leftSpeed;
-  float rightSpeed;
-
-    // Calculate wheel speeds
-    leftSpeed  = y;  
-    rightSpeed = y;
-
-    // Add strafe component
-    leftSpeed += x;
-    rightSpeed -= x;
-
-    // Normalize speeds to the motor maximum speed
-    float maxMagnitude = max(abs(leftSpeed), abs(rightSpeed));
-    if (maxMagnitude > MOTOR_MAX_SPEED) {
-      leftSpeed = (leftSpeed / maxMagnitude) * MOTOR_MAX_SPEED;
-      rightSpeed = (rightSpeed / maxMagnitude) * MOTOR_MAX_SPEED;
+    // Properly constrain all inputs
+    if(y < -800){
+      y = 1023;
     }
 
-    leftSpeed = -leftSpeed;
-    rightSpeed = -rightSpeed;
+    x = x/1.2;
 
+    // Declare speed variables
+    int leftSpeed = 0;
+    int rightSpeed = 0;
 
-  // Set motor speeds for the left side
-  if (leftSpeed >= 0) {
-    analogWrite(WheelLF, leftSpeed);
-    analogWrite(WheelLR, 0);
-  } else {
-    analogWrite(WheelLF, 0);
-    analogWrite(WheelLR, -leftSpeed);
-  }
+    // Enhanced control mixing based on drive mode
+    if (messageIn.stickL == 1) {
+        // Tank drive mode
+        leftSpeed = y;
+        rightSpeed = y2;
+    } else {
+        // Standard arcade drive mode
+        leftSpeed = y;
+        rightSpeed = y;
+        
+        // Add rotation component
+        leftSpeed += x;
+        rightSpeed -= x;
 
-  // Set motor speeds for the right side
-  if (rightSpeed >= 0) {
-    analogWrite(WheelRF, rightSpeed);
-    analogWrite(WheelRR, 0);
-  } else {
-    analogWrite(WheelRF, 0);
-    analogWrite(WheelRR, -rightSpeed);
-  }
+    }
 
+    // Apply direction inversion if needed
+    if (messageIn.stickR != 1) {
+        leftSpeed = -leftSpeed;
+        rightSpeed = -rightSpeed;
+    }
 
+    // Re-constrain after all calculations
+
+    // Normal motor control (when not actively braking)
+    // Set motor speeds for the left side
+    // if (leftSpeed >= 0) {
+    //     analogWrite(WheelLF, 1023-leftSpeed);
+    //     analogWrite(WheelLR, 900);
+    // } else {
+    //     analogWrite(WheelLF, 900);
+    //     analogWrite(WheelLR, 1023+leftSpeed);
+    // }
+
+    // // Set motor speeds for the right side
+    // if (rightSpeed >= 0) {
+    //     analogWrite(WheelRF, 1023-rightSpeed);
+    //     analogWrite(WheelRR, 900);
+    // } else {
+    //     analogWrite(WheelRF, 900);
+    //     analogWrite(WheelRR, 1023+rightSpeed);
+    // }
+
+    leftSpeed = pow(leftSpeed / 1023.0, 3) * 1023.0;
+    rightSpeed = pow(rightSpeed / 1023.0, 3) * 1023.0;
+
+    leftSpeed = constrain(leftSpeed, -1023, 1023);
+    rightSpeed = constrain(rightSpeed, -1023, 1023);
+    Serial.printf("y: %d, \t x: %d, \t Left speed: %d, \t RightSpeed: %d \n", y, x, leftSpeed, rightSpeed);
+
+    const int Speed_Control = 110;
+
+    if (leftSpeed >= 0) {
+        leftSpeed = leftSpeed < Speed_Control ? Speed_Control : leftSpeed;
+        analogWrite(WheelLF, leftSpeed);
+        analogWrite(WheelLR, Speed_Control);
+    } else {
+        leftSpeed = leftSpeed > -Speed_Control ? -Speed_Control : leftSpeed;
+        analogWrite(WheelLF, Speed_Control);
+        analogWrite(WheelLR, -leftSpeed);
+    }
+
+    // Set motor speeds for the right side
+    if (rightSpeed >= 0) {
+        rightSpeed = rightSpeed < Speed_Control ? Speed_Control : rightSpeed;
+        analogWrite(WheelRF, rightSpeed);
+        analogWrite(WheelRR, Speed_Control);
+    } else {
+        rightSpeed = rightSpeed > -Speed_Control ? -Speed_Control : rightSpeed;
+        analogWrite(WheelRF, Speed_Control);
+        analogWrite(WheelRR, -rightSpeed);
+    }
 }
+
+
 
 void shutdownSystems() {
   // Stop all motors
-  analogWrite(WheelLF, 0);
-  analogWrite(WheelLR, 0);
-  analogWrite(WheelRF, 0);
-  analogWrite(WheelRR, 0);
-
+  weaponESC.writeMicroseconds(1000);
+  
+  applyActiveBrake();
 }
 
-void controlServoMotors(const CorrectVect& camera_data){
 
-  // check confidence range is within 50%
-  const bool is_confident = (camera_data.confidence.val > 50);
-  // check if a target is in range
-  const bool in_frame = camera_data.in_frame;
-
-  // determine if we should attempt to target something
-  const bool should_target = is_confident and in_frame;
-
-  // --- up/down control ---
-  const auto y_control = [&](){
-    if (should_target) {
-      return camera_data.y < 0 ? 1550 : 1450;
-    } else {
-      return 1500;
-    }
-  }();
-  udPWM.writeMicroseconds(y_control);
-
-
-  // --- left/right control ---
-  const auto x_control = [&](){
-    if (should_target) {
-      return camera_data.x < 0 ? 1550 : 1450;
-    } else {
-      return 1500;
-    }
-  }();
-  lrPWM.writeMicroseconds(x_control);
+// You can optionally add this helper function to implement active braking directly
+void applyActiveBrake() {
+    // This function applies brief opposing force to quickly stop motors
+    // Apply full power in opposite direction
+    analogWrite(WheelLF, 1023);
+    analogWrite(WheelLR, 1023);
+    analogWrite(WheelRF, 1023);
+    analogWrite(WheelRR, 1023);
+    
 }
 
 
 void loop() {
-  
-  //Control servos first
-  if(messageIn.bumpR){
-    if(messageIn.x2 > 500){
-      lrPWM.writeMicroseconds(1600);
-    } else if(messageIn.x2 < -500) {
-      lrPWM.writeMicroseconds(1400);
-    } else {
-      lrPWM.writeMicroseconds(1500);
-
-    }
-
-    if(messageIn.y2 > 500){
-      udPWM.writeMicroseconds(1400);
-    } else if(messageIn.y2 < -500) {
-      udPWM.writeMicroseconds(1600);
-    } else {
-      udPWM.writeMicroseconds(1500);
-    }
-
-  } else{
-
-  
-    if(millis() - lastCamTime > CAM_TIMEOUT ) {
-      lrPWM.writeMicroseconds(1500);
-      udPWM.writeMicroseconds(1500);
-    } else {
-      Serial.printf("running cam now");
-      controlServoMotors(cameraIn);
-    }
-  }
-
-  // Check for timeout
+   // Check for timeout
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
+    
     shutdownSystems();
     digitalWrite(BUILTIN_LED, HIGH);//blink(); // Visual indication of timeout
     return;
   }
-
-
+  
   if (newMessage == 1) {
     newMessage = 0;
     
-    controlDriveMotors(messageIn.x1, messageIn.y1);
+    // Update weapon state
+    weaponEnabled = messageIn.bumpL;
+    
+    // Control systems
+    controlWeapon();
+    controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.y2);
   }
 
   

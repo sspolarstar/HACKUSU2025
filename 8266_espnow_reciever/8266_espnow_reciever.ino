@@ -187,8 +187,8 @@ void controlDriveMotors(int x, int y) {
   // rlPWM.writeMicrosecond(1500)
 
   // Normalize inputs to the -1023 to 1023 range
-  x = constrain(x, -1023, 1023)/32;
-  y = constrain(y, -1023, 1023)/32;
+  x = constrain(x, -1023, 1023);
+  y = constrain(y, -1023, 1023);
 
   float leftSpeed;
   float rightSpeed;

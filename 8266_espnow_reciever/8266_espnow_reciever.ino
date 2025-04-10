@@ -1,291 +1,182 @@
 #include <ESP8266WiFi.h>
 #include <espnow.h>
-#include <Servo.h>  // Add Servo library for ESC control
+#include <Servo.h>  // Servo library for ESC control
 
 /*
-Weapon ESC is the little bee - BLHeli_s 30A ESC Signal pin is connected to Esp8266 pin D0.
-
-Drive motor (N20) is controlled by an ESC (not a true ESC) H-bridge DRV8833. D5&D6 connect to in 1&2 and D7&D8 connect to in 3&4
-
-Robot is powered by a 30C 2S 450 mAh Lipo battery
-
-Bot will be remote controlled via ESP-now. The protocol should send a packet at 20Hz. (every 50ms). If no packet is recieved for over 1 second the bot must go into a shut down mode (wheel motors to 0 and weapon spinner to halted with breaking)
+Weapon ESC is the little bee - BLHeli_s 30A ESC.
+Drive motors are now controlled via a 2‑port ESC (Payne RC) that accepts PWM signals:
+   - Reverse: 800–1100 μs (800 = full reverse)
+   - Neutral: ~1500 μs
+   - Forward: 1900–2200 μs (2200 = full forward)
+The signal wires are connected to a D1 Mini clone.
+Remote control is via ESP‑NOW, with a 20Hz update rate.
+A 1‑second timeout stops the drive and weapon.
 */
 
-// Correct GPIO pin definitions for ESP8266
-// #define WeaponSignal 16  // D0 = GPIO 16
-#define WeaponSignal 4  // D0 = GPIO 16
-#define WheelLF 12      // D5 = GPIO 14
-#define WheelLR 14      // D6 = GPIO 12
-#define WheelRF 15      // D7 = GPIO 13
-#define WheelRR 13      // D8 = GPIO 15
+// --- Pin definitions ---
+// Weapon ESC
+#define WeaponSignal 14   // (D0 equivalent)
 
-// #define ServoLR 5      // D1 = GPIO 5
-// #define ServoUD 4     // D2 = GPIO 4
+// Drive ESC signal pins (using the new ESC for drive motors)
+#define LeftSignal 4     
+#define RightSignal 5    
 
-#define WHEEL_DIAMETER 30.0    // mm
-#define AXLE_LENGTH 115.0      // mm
-
-#define WHEEL_RADIUS (WHEEL_DIAMETER / 2.0)
-#define WHEEL_CIRCUMFERENCE (PI * WHEEL_DIAMETER)
-
-#define WHEEL_DIAMETER_MM 30.0
-#define AXLE_LENGTH_MM 115.0
-#define MOTOR_MAX_SPEED 1023  // Maximum speed for the motors
-
-// Conversion factor for wheel speeds (linear and rotational components)
-#define MM_TO_SPEED_FACTOR (MOTOR_MAX_SPEED / (WHEEL_DIAMETER_MM * PI))
-
-//Packet Keys for data received
+// Packet Keys for data received
 #define MESSAGE_KEY 0x5C077BAD
-// #define CAMERA_KEY 0xDEADBEEF
-// Create servo object to control the weapon ESC
-// Servo udPWM;
-// Servo lrPWM;
+
+// Create servo objects for the weapon and drive ESCs
 Servo weaponESC;
+Servo leftESC;
+Servo rightESC;
+
 // Struct to receive data 
 struct __attribute__((packed)) Message{
-  uint32_t key; //Code to manage access to device
-  int16_t x1;  //Position vector - x desired (-1024 to 1024)
-  int16_t x2;  //unused - always zero
-  int16_t y1;  //Position vector - y desired (-1024 to 1024)
-  int16_t y2;  //rotational vector - turns bot about center (-1024 to 1024)
-  bool     bumpL;   //Toggle weapon halt (0 - bot is not allowed to spin weapon, weapon breaks are engaged.) (1 - bot is spinning weapon)
-  bool     bumpR;   //Weapon active toggles (0 - counter rotation) (1 - normal rotation)
-  bool     stickL;  //swaps drive modes
-  bool     stickR;  //inverts robot position
+  uint32_t key;     // Code to manage access to device
+  int16_t x1;       // Position vector - x desired (-1024 to 1024)
+  int16_t x2;       // Unused – always zero
+  int16_t y1;       // Position vector – y desired (-1024 to 1024)
+  int16_t y2;       // Rotational vector – turns bot about center (-1024 to 1024)
+  bool    bumpL;    // Toggle weapon halt (0: weapon halted, 1: weapon allowed)
+  bool    bumpR;    // Weapon active toggles (0: counter rotation, 1: normal rotation)
+  bool    stickL;   // Swaps drive modes (tank vs. arcade)
+  bool    stickR;   // Inverts robot drive direction
 };
 
-// Struct to recieve camera correction vector
 Message messageIn;
+bool newMessage = false;
 
-bool newMessage = 0;
-bool newCameraMessage = 0;
-
-// Safety timeout variables
+// Timeout variables
 unsigned long lastMessageTime = 0;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
-bool weaponEnabled = false;
-bool weaponSpeed = false; // true = fast, false = slow
+// For drive control scaling and deadzone
+const int MOTOR_MAX = 1023;
+const int DEADZONE = 50;  // Small deadzone around 0
 
-// Callback when data is received
+// Callback when data is received via ESP‑NOW
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
-  // Copy incoming data
   memcpy(&messageIn, incomingData, sizeof(messageIn));
-  if(messageIn.key != 0x5C077BAD){
-    Serial.println("key Rejected");
+  if(messageIn.key != MESSAGE_KEY) {
+    Serial.println("Key rejected");
     return;
   }
-  newMessage = 1;
-  lastMessageTime = millis(); // Update last message timestamp
+  newMessage = true;
+  lastMessageTime = millis(); // Update last message time
   digitalWrite(BUILTIN_LED, LOW);
-  static int count = 0;
-  // Print received message
-  // Serial.println("Received message: " + String(count));
-  count++;
-
 }
 
-
 void setup() {
-  // Initialize Serial first for debugging
   Serial.begin(115200);
-  // while (!Serial) {
-  //   ; // wait for serial port to connect
-  // }
-  // Serial.println("Starting up...");
   
-  // Configure pins
+  // Set built-in LED for debugging
   pinMode(BUILTIN_LED, OUTPUT);
-  pinMode(WheelLF, OUTPUT);
-  pinMode(WheelLR, OUTPUT);
-  pinMode(WheelRF, OUTPUT);
-  pinMode(WheelRR, OUTPUT);
+  digitalWrite(BUILTIN_LED, LOW);
+  
+  // Initialize drive ESCs (as servos)
+  leftESC.attach(LeftSignal, 800, 2200);
+  rightESC.attach(RightSignal, 800, 2200);
+  
+  // Initialize drive motors to neutral (1500 μs)
+  leftESC.writeMicroseconds(1500);
+  rightESC.writeMicroseconds(1500);
   
   // Initialize weapon ESC
   weaponESC.attach(WeaponSignal);
-  weaponESC.writeMicroseconds(1000);  // Set to zero throttle
-
-  // Initialize all drive outputs to 0
-  analogWrite(WheelLF, 0);
-  analogWrite(WheelLR, 0);
-  analogWrite(WheelRF, 0);
-  analogWrite(WheelRR, 0);
+  weaponESC.writeMicroseconds(1000);  // Zero throttle for weapon
   
-  digitalWrite(BUILTIN_LED, LOW);
-  
-  // Set PWM frequency for drive motors
-  analogWriteFreq(30000);
-  
- // Set device as WiFi station
+  // Set device as WiFi station
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
-  // Init ESP-NOW
+  // Initialize ESP‑NOW
   if (esp_now_init() != 0) {
-    // Serial.println("Error initializing ESP-NOW");
+    Serial.println("Error initializing ESP‑NOW");
     return;
-  } else{
-    // Serial.println("esp now initialized");
   }
-
-  // Set up receive callback
   esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
   esp_now_register_recv_cb(OnDataRecv);
-
 }
 
+// Control the weapon ESC (unchanged from before)
 void controlWeapon() {
-  if (!weaponEnabled || !messageIn.bumpL) {
+  if (!messageIn.bumpL) {
     weaponESC.writeMicroseconds(1000);  // Zero throttle with brake
     return;
   }
   
-  // If weapon enabled and allowed to spin
-  int weaponSpeed = messageIn.bumpR ? 2000 : 1200;  // Full throttle or slow speed
+  // If weapon is enabled and allowed to spin
+  int weaponSpeed = messageIn.bumpR ? 2000 : 1200;  // Fast or slow speed
   weaponESC.writeMicroseconds(weaponSpeed);
 }
 
-void blink(){
-  //change LED color
-  if(digitalRead(BUILTIN_LED) == HIGH){
-    digitalWrite(BUILTIN_LED, LOW);
+// Map a motor speed (-MOTOR_MAX to MOTOR_MAX) to the appropriate ESC pulse
+int speedToPulse(int speed) {
+  // Use 1500 μs for neutral
+  if (abs(speed) < DEADZONE) return 1500;
+  
+  if (speed > 0) {
+    // Map positive speeds from DEADZONE...MOTOR_MAX to 1900...2200 μs
+    return map(speed, DEADZONE, MOTOR_MAX, 1900, 2200);
   } else {
-    digitalWrite(BUILTIN_LED, HIGH);
+    // Map negative speeds from -MOTOR_MAX...-DEADZONE to 800...1100 μs
+    return map(speed, -MOTOR_MAX, -DEADZONE, 800, 1100);
   }
 }
 
-// Enhanced drive motor control function with active braking
+// Enhanced drive motor control using servo signals for ESC control
 void controlDriveMotors(int x, int y, int y2) {
+  int leftSpeed = 0;
+  int rightSpeed = 0;
 
-    // Properly constrain all inputs
-    if(y < -800){
-      y = 1023;
-    }
+  // Apply drive mode mixing
+  if (messageIn.stickL) {  // Tank drive mode
+    leftSpeed = y;
+    rightSpeed = y2;
+  } else {  // Arcade drive mode
+    leftSpeed = y + x;   // Add rotational component to left side
+    rightSpeed = y - x;  // Subtract rotational component from right side
+  }
 
-    x = x/1.2;
+  // Invert directions if needed
+  if (!messageIn.stickR) {
+    leftSpeed = -leftSpeed;
+    rightSpeed = -rightSpeed;
+  }
 
-    // Declare speed variables
-    int leftSpeed = 0;
-    int rightSpeed = 0;
+  // (Previously we applied a cubic scaling. For finer control, we now use the raw values.)
+  leftSpeed = constrain(leftSpeed, -MOTOR_MAX, MOTOR_MAX);
+  rightSpeed = constrain(rightSpeed, -MOTOR_MAX, MOTOR_MAX);
 
-    // Enhanced control mixing based on drive mode
-    if (messageIn.stickL == 1) {
-        // Tank drive mode
-        leftSpeed = y;
-        rightSpeed = y2;
-    } else {
-        // Standard arcade drive mode
-        leftSpeed = y;
-        rightSpeed = y;
-        
-        // Add rotation component
-        leftSpeed += x;
-        rightSpeed -= x;
+  Serial.printf("Inputs: x=%d, y=%d, y2=%d => leftSpeed=%d, rightSpeed=%d\n", x, y, y2, leftSpeed, rightSpeed);
 
-    }
-
-    // Apply direction inversion if needed
-    if (messageIn.stickR != 1) {
-        leftSpeed = -leftSpeed;
-        rightSpeed = -rightSpeed;
-    }
-
-    // Re-constrain after all calculations
-
-    // Normal motor control (when not actively braking)
-    // Set motor speeds for the left side
-    // if (leftSpeed >= 0) {
-    //     analogWrite(WheelLF, 1023-leftSpeed);
-    //     analogWrite(WheelLR, 900);
-    // } else {
-    //     analogWrite(WheelLF, 900);
-    //     analogWrite(WheelLR, 1023+leftSpeed);
-    // }
-
-    // // Set motor speeds for the right side
-    // if (rightSpeed >= 0) {
-    //     analogWrite(WheelRF, 1023-rightSpeed);
-    //     analogWrite(WheelRR, 900);
-    // } else {
-    //     analogWrite(WheelRF, 900);
-    //     analogWrite(WheelRR, 1023+rightSpeed);
-    // }
-
-    leftSpeed = pow(leftSpeed / 1023.0, 3) * 1023.0;
-    rightSpeed = pow(rightSpeed / 1023.0, 3) * 1023.0;
-
-    leftSpeed = constrain(leftSpeed, -1023, 1023);
-    rightSpeed = constrain(rightSpeed, -1023, 1023);
-    Serial.printf("y: %d, \t x: %d, \t Left speed: %d, \t RightSpeed: %d \n", y, x, leftSpeed, rightSpeed);
-
-    const int Speed_Control = 110;
-
-    if (leftSpeed >= 0) {
-        leftSpeed = leftSpeed < Speed_Control ? Speed_Control : leftSpeed;
-        analogWrite(WheelLF, leftSpeed);
-        analogWrite(WheelLR, Speed_Control);
-    } else {
-        leftSpeed = leftSpeed > -Speed_Control ? -Speed_Control : leftSpeed;
-        analogWrite(WheelLF, Speed_Control);
-        analogWrite(WheelLR, -leftSpeed);
-    }
-
-    // Set motor speeds for the right side
-    if (rightSpeed >= 0) {
-        rightSpeed = rightSpeed < Speed_Control ? Speed_Control : rightSpeed;
-        analogWrite(WheelRF, rightSpeed);
-        analogWrite(WheelRR, Speed_Control);
-    } else {
-        rightSpeed = rightSpeed > -Speed_Control ? -Speed_Control : rightSpeed;
-        analogWrite(WheelRF, Speed_Control);
-        analogWrite(WheelRR, -rightSpeed);
-    }
-}
-
-
-
-void shutdownSystems() {
-  // Stop all motors
-  weaponESC.writeMicroseconds(1000);
+  // Convert speeds to ESC pulses
+  int leftPulse = speedToPulse(leftSpeed);
+  int rightPulse = speedToPulse(rightSpeed);
   
-  applyActiveBrake();
+  leftESC.writeMicroseconds(leftPulse);
+  rightESC.writeMicroseconds(rightPulse);
 }
 
-
-// You can optionally add this helper function to implement active braking directly
-void applyActiveBrake() {
-    // This function applies brief opposing force to quickly stop motors
-    // Apply full power in opposite direction
-    analogWrite(WheelLF, 1023);
-    analogWrite(WheelLR, 1023);
-    analogWrite(WheelRF, 1023);
-    analogWrite(WheelRR, 1023);
-    
+// Shutdown procedure: stop weapon and set drive ESCs to neutral
+void shutdownSystems() {
+  weaponESC.writeMicroseconds(1000);
+  leftESC.writeMicroseconds(1500);
+  rightESC.writeMicroseconds(1500);
+  digitalWrite(BUILTIN_LED, HIGH);
 }
-
 
 void loop() {
-   // Check for timeout
+  // Timeout check: if no message for over TIMEOUT_DURATION, shutdown systems.
   if (millis() - lastMessageTime > TIMEOUT_DURATION) {
-    
     shutdownSystems();
-    digitalWrite(BUILTIN_LED, HIGH);//blink(); // Visual indication of timeout
     return;
   }
   
-  if (newMessage == 1) {
-    newMessage = 0;
+  if (newMessage) {
+    newMessage = false;
     
-    // Update weapon state
-    weaponEnabled = messageIn.bumpL;
-    
-    // Control systems
+    // Update weapon state and control systems
     controlWeapon();
     controlDriveMotors(messageIn.x1, messageIn.y1, messageIn.y2);
   }
-
-  
-  
 }

@@ -18,8 +18,8 @@ A 1‑second timeout stops the drive and weapon.
 #define WeaponSignal 14   // (D0 equivalent)
 
 // Drive ESC signal pins (using the new ESC for drive motors)
-#define LeftSignal 4     
-#define RightSignal 5    
+#define LeftSignal 4     //Left forward tuning min: 1421 to max: 1000 //reverse: min : 1580 max: 2000
+#define RightSignal 5    //forward min 1422 to max: 1000 //reverse min: 1580 to 2000
 
 // Packet Keys for data received
 #define MESSAGE_KEY 0x5C077BAD
@@ -49,9 +49,6 @@ bool newMessage = false;
 unsigned long lastMessageTime = 0;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
-// For drive control scaling and deadzone
-const int MOTOR_MAX = 1023;
-const int DEADZONE = 50;  // Small deadzone around 0
 
 // Callback when data is received via ESP‑NOW
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
@@ -73,8 +70,8 @@ void setup() {
   digitalWrite(BUILTIN_LED, LOW);
   
   // Initialize drive ESCs (as servos)
-  leftESC.attach(LeftSignal, 800, 2200);
-  rightESC.attach(RightSignal, 800, 2200);
+  leftESC.attach(LeftSignal);
+  rightESC.attach(RightSignal);
   
   // Initialize drive motors to neutral (1500 μs)
   leftESC.writeMicroseconds(1500);
@@ -112,14 +109,14 @@ void controlWeapon() {
 // Map a motor speed (-MOTOR_MAX to MOTOR_MAX) to the appropriate ESC pulse
 int speedToPulse(int speed) {
   // Use 1500 μs for neutral
-  if (abs(speed) < DEADZONE) return 1500;
+  if (abs(speed) < 1) return 1500;
   
   if (speed > 0) {
     // Map positive speeds from DEADZONE...MOTOR_MAX to 1900...2200 μs
-    return map(speed, DEADZONE, MOTOR_MAX, 1900, 2200);
+    return map(speed, 1, 1024, 1420, 1000);
   } else {
     // Map negative speeds from -MOTOR_MAX...-DEADZONE to 800...1100 μs
-    return map(speed, -MOTOR_MAX, -DEADZONE, 800, 1100);
+    return map(speed, -1023, 1, 2000, 1480);
   }
 }
 
@@ -128,30 +125,36 @@ void controlDriveMotors(int x, int y, int y2) {
   int leftSpeed = 0;
   int rightSpeed = 0;
 
+  int turnSpeed = x;
+
   // Apply drive mode mixing
   if (messageIn.stickL) {  // Tank drive mode
     leftSpeed = y;
     rightSpeed = y2;
   } else {  // Arcade drive mode
-    leftSpeed = y + x;   // Add rotational component to left side
-    rightSpeed = y - x;  // Subtract rotational component from right side
+    leftSpeed = y + turnSpeed;   // Add rotational component to left side
+    rightSpeed = y - turnSpeed;  // Subtract rotational component from right side
   }
 
-  // Invert directions if needed
+  // Invert directions when bot is upside down
   if (!messageIn.stickR) {
     leftSpeed = -leftSpeed;
     rightSpeed = -rightSpeed;
   }
 
-  // (Previously we applied a cubic scaling. For finer control, we now use the raw values.)
-  leftSpeed = constrain(leftSpeed, -MOTOR_MAX, MOTOR_MAX);
-  rightSpeed = constrain(rightSpeed, -MOTOR_MAX, MOTOR_MAX);
+    leftSpeed = pow(leftSpeed / 1023.0, 3) * 1023.0;
+    rightSpeed = pow(rightSpeed / 1023.0, 3) * 1023.0;
 
-  Serial.printf("Inputs: x=%d, y=%d, y2=%d => leftSpeed=%d, rightSpeed=%d\n", x, y, y2, leftSpeed, rightSpeed);
+    leftSpeed = constrain(leftSpeed, -1023, 1023);
+    rightSpeed = constrain(rightSpeed, -1023, 1023);
+
+  Serial.printf("Inputs: x=%d, y=%d, y2=%d\n leftSpeed=%d, rightSpeed=%d\n", x, y, y2, leftSpeed, rightSpeed);
 
   // Convert speeds to ESC pulses
   int leftPulse = speedToPulse(leftSpeed);
   int rightPulse = speedToPulse(rightSpeed);
+
+  Serial.printf("pulsespeed l: %d R: %d\n\n", leftPulse, rightPulse);
   
   leftESC.writeMicroseconds(leftPulse);
   rightESC.writeMicroseconds(rightPulse);

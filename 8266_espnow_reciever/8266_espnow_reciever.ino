@@ -125,7 +125,7 @@ void controlDriveMotors(int x, int y, int y2) {
   int leftSpeed = 0;
   int rightSpeed = 0;
 
-  int turnSpeed = x;
+  int turnSpeed = x/1.5;
 
   // Apply drive mode mixing
   if (messageIn.stickL) {  // Tank drive mode

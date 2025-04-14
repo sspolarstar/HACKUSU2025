@@ -96,14 +96,16 @@ void setup() {
 
 // Control the weapon ESC (unchanged from before)
 void controlWeapon() {
-  if (!messageIn.bumpL) {
+  if (!messageIn.bumpR) {
     weaponESC.writeMicroseconds(1000);  // Zero throttle with brake
     return;
   }
   
   // If weapon is enabled and allowed to spin
-  int weaponSpeed = messageIn.bumpR ? 2000 : 1200;  // Fast or slow speed
+  int weaponSpeed = messageIn.bumpL ? 1800 : 1200;  // Fast or slow speed
+
   weaponESC.writeMicroseconds(weaponSpeed);
+
 }
 
 // Map a motor speed (-MOTOR_MAX to MOTOR_MAX) to the appropriate ESC pulse
@@ -125,7 +127,7 @@ void controlDriveMotors(int x, int y, int y2) {
   int leftSpeed = 0;
   int rightSpeed = 0;
 
-  int turnSpeed = x/1.5;
+  int turnSpeed = x/1.25;
 
   // Apply drive mode mixing
   if (messageIn.stickL) {  // Tank drive mode

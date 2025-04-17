@@ -82,7 +82,7 @@ bool newCameraMessage = 0;
 // Safety timeout variables
 unsigned long lastMessageTime = 0;
 unsigned long lastCamTime = 0;
-const unsigned long CAM_TIMEOUT = 250;
+const unsigned long CAM_TIMEOUT = 100;
 const unsigned long TIMEOUT_DURATION = 1000; // 1 second timeout
 
 // Callback when data is received
@@ -109,7 +109,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
         break;
     case CAMERA_KEY:
         static int count;
-        Serial.printf("count: %d", count);
+        // Serial.printf("count: %d", count);
         lastCamTime = millis();
         count++;
         // Serial.println("Message from cam");
@@ -179,6 +179,7 @@ void blink(){
     digitalWrite(BUILTIN_LED, LOW);
   } else {
     digitalWrite(BUILTIN_LED, HIGH);
+    
   }
 }
 // Function to control drive motors
@@ -206,6 +207,7 @@ void controlDriveMotors(int x, int y) {
     if (maxMagnitude > MOTOR_MAX_SPEED) {
       leftSpeed = (leftSpeed / maxMagnitude) * MOTOR_MAX_SPEED;
       rightSpeed = (rightSpeed / maxMagnitude) * MOTOR_MAX_SPEED;
+
     }
 
     leftSpeed = -leftSpeed;
@@ -219,6 +221,7 @@ void controlDriveMotors(int x, int y) {
   } else {
     analogWrite(WheelLF, 0);
     analogWrite(WheelLR, -leftSpeed);
+
   }
 
   // Set motor speeds for the right side
@@ -244,8 +247,10 @@ void shutdownSystems() {
 
 void controlServoMotors(const CorrectVect& camera_data){
 
+  Serial.printf("Camera Location In: x: %d, y: %d\n", camera_data.x, camera_data.y);
   // check confidence range is within 50%
-  const bool is_confident = (camera_data.confidence.val > 50);
+  
+  const bool is_confident = (camera_data.confidence.val > 25);
   // check if a target is in range
   const bool in_frame = camera_data.in_frame;
 
@@ -266,12 +271,13 @@ void controlServoMotors(const CorrectVect& camera_data){
   // --- left/right control ---
   const auto x_control = [&](){
     if (should_target) {
-      return camera_data.x < 0 ? 1550 : 1450;
+      return camera_data.x < -255 ? 1550 : 1450;
     } else {
       return 1500;
     }
   }();
   lrPWM.writeMicroseconds(x_control);
+
 }
 
 
@@ -303,9 +309,11 @@ void loop() {
       lrPWM.writeMicroseconds(1500);
       udPWM.writeMicroseconds(1500);
     } else {
-      Serial.printf("running cam now");
+      // Serial.printf("running cam now");
       controlServoMotors(cameraIn);
     }
+
+
   }
 
   // Check for timeout

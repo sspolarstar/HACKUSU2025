@@ -1,5 +1,4 @@
-#define WIFI_SSID "nicks_hotspot"
-#define WIFI_PASS "june_3_wins!"
+
 #define HOSTNAME "esp32cam"
 
 #include <Arduino.h>
@@ -257,3 +256,4 @@ void loop() {
     Serial.println("[ESP NOW] Sent!");
   }
 }
+
